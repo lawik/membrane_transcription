@@ -1,16 +1,16 @@
 defmodule MembraneTranscription.Whisper do
-  def transcribe!(raw_audio, extension) do
+  def transcribe!(raw_audio, extension, model) do
     path = Path.join("/tmp", "#{System.unique_integer()}.#{extension}")
     File.write!(path, raw_audio)
-    transcribe_path!(path)
+    transcribe_path!(path, model)
   end
 
-  def transcribe_path!(path) do
+  def transcribe_path!(path, model) do
     File.cd!(whisper_path())
 
     {output, 0} =
       System.shell(
-        "#{whisper_path()}/env/bin/python -mwhisper --model base --verbose True --task transcribe #{path}"
+        "#{whisper_path()}/env/bin/python -mwhisper --model #{model} --verbose True --task transcribe #{path}"
       )
 
     process_output(output)

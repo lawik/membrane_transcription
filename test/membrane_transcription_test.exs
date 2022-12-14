@@ -13,18 +13,19 @@ defmodule MembraneTranscriptionTest do
     def handle_init(opts) do
       filepath = Keyword.fetch!(opts, :filepath)
       to_pid = Keyword.fetch!(opts, :to_pid)
+      model = Keyword.fetch!(opts, :model)
 
       children = %{
         file: %Membrane.File.Source{location: filepath},
         decoder: Membrane.MP3.MAD.Decoder,
         converter: %Membrane.FFmpeg.SWResample.Converter{
           output_caps: %Membrane.RawAudio{
-            sample_format: :s16le,
+            sample_format: :f32le,
             sample_rate: @target_sample_rate,
             channels: 1
           }
         },
-        transcription: %MembraneTranscription.Element{to_pid: to_pid},
+        transcription: %MembraneTranscription.Element{to_pid: to_pid, model: model},
         fake_out: Membrane.Fake.Sink.Buffers
       }
 
@@ -56,6 +57,12 @@ defmodule MembraneTranscriptionTest do
     end
 
     @impl true
+    def handle_element_end_of_stream({:transcription, :input}, _context, state) do
+      IO.puts("transcription complete")
+      {{:ok, playback: :stopped}, state}
+    end
+
+    @impl true
     def handle_element_end_of_stream(_, _context, state) do
       {:ok, state}
     end
@@ -82,13 +89,31 @@ defmodule MembraneTranscriptionTest do
     :ok
   end
 
-  test "sample pipeline" do
-    {:ok, pid} = Pipeline.start_link(filepath: @filepath, to_pid: self())
-    Pipeline.play(pid)
-
+  def receive_transcript do
     receive do
       {:transcript, transcript} ->
-        assert :ok = transcript
+        IO.puts("Received transcript")
+        IO.inspect(transcript)
+        assert %{items: _, language: _lang} = transcript
+
+        receive_transcript()
+      # :transcription_done ->
+      #   IO.puts("Transcript done")
+      #   nil
+      after
+        10_000 ->
+          receive do
+            :transcription_done ->
+              IO.puts("Got transcription done")
+          end
     end
+  end
+
+  @tag timeout: :infinity
+  test "sample pipeline" do
+    {:ok, pid} = Pipeline.start_link(filepath: @filepath, to_pid: self(), model: "tiny")
+    Pipeline.play(pid)
+
+    receive_transcript()
   end
 end
