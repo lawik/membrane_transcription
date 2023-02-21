@@ -25,9 +25,13 @@ defmodule MembraneTranscription.Element do
     caps: :any
   )
 
+  @assumed_sample_rate 16000
+  # seconds
+  @assumed_target_timeslices 5
+
   @impl true
   def handle_init(%__MODULE{to_pid: pid, model: model}) do
-    state = %{to_pid: pid, model: model}
+    state = %{to_pid: pid, model: model, previous: nil, buffered: []}
 
     {:ok, state}
   end
@@ -43,13 +47,25 @@ defmodule MembraneTranscription.Element do
   end
 
   @impl true
-  def handle_process(:input, %Membrane.Buffer{} = buffer, _context, state) do
+  def handle_process(:input, %Membrane.Buffer{} = buffer, context, state) do
     # IO.inspect(buffer, label: "processing buffer")
+    # IO.inspect(context, label: "context")
 
-    transcript = MembraneTranscription.Whisper.transcribe!(buffer.payload, "pcm", state.model)
-    send(state.to_pid, {:transcript, transcript})
+    # transcript = MembraneTranscription.Whisper.transcribe!(buffer.payload, "pcm", state.model)
+    # send(state.to_pid, {:transcript, transcript})
 
-    {{:ok, buffer: {:output, buffer}}, state}
+    buffered = [state.buffered | buffer.payload]
+
+    buffered =
+      if IO.iodata_length(buffered) / @assumed_sample_rate > @assumed_target_timeslices do
+        # TODO: Processing
+        IO.inspect(IO.iodata_length(buffered), label: "buffer ready")
+        []
+      else
+        buffered
+      end
+
+    {{:ok, buffer: {:output, buffer}}, %{state | previous: buffer.payload, buffered: buffered}}
   end
 
   @impl true
