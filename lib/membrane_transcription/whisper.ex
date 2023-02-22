@@ -1,58 +1,45 @@
 defmodule MembraneTranscription.Whisper do
-  def transcribe!(raw_audio, extension, model) do
-    path = Path.join("/tmp", "#{System.unique_integer()}.#{extension}")
-    File.write!(path, raw_audio)
-    transcribe_path!(path, model)
+  use GenServer
+
+  def start_link(opts) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def transcribe_path!(path, model) do
-    File.cd!(whisper_path())
+  def init(opts) do
+    {:ok, whisper} = Bumblebee.load_model({:hf, "openai/whisper-base.en"})
+    {:ok, featurizer} = Bumblebee.load_featurizer({:hf, "openai/whisper-base.en"})
+    {:ok, tokenizer} = Bumblebee.load_tokenizer({:hf, "openai/whisper-base.en"})
 
-    {output, 0} =
-      System.shell(
-        "#{whisper_path()}/env/bin/python -mwhisper --model #{model} --verbose True --task transcribe #{path}"
+    serving =
+      Bumblebee.Audio.speech_to_text(whisper, featurizer, tokenizer,
+        max_new_tokens: 100,
+        defn_options: [compiler: EXLA]
       )
 
-    process_output(output)
+    {:ok, %{serving: serving}}
   end
 
-  defp process_output(output) do
-    output
-    |> String.split("\n")
-    |> Enum.reduce(%{language: nil, items: []}, fn line, acc ->
-      case line do
-        "Detected language: " <> language ->
-          %{acc | language: language}
-
-        "[" <> _ ->
-          caps =
-            Regex.named_captures(
-              ~r/\[(?<start>..:..\....) --> (?<stop>..:..\....)\]  (?<text>.+)/,
-              line
-            )
-
-          %{
-            acc
-            | items: [
-                acc.items,
-                %{
-                  start: caps["start"],
-                  stop: caps["stop"],
-                  text: caps["text"]
-                }
-              ]
-          }
-
-        _ ->
-          acc
-      end
-    end)
-    |> then(fn result ->
-      %{result | items: List.flatten(result.items)}
-    end)
+  def new_audio(raw_pcm_32_or_wav, channels, sampling_rate) do
+    %{
+      data: raw_pcm_32_or_wav,
+      num_channels: channels,
+      sampling_rate: sampling_rate
+    }
   end
 
-  defp whisper_path do
-    System.get_env("WHISPER_PATH", Path.join(Path.expand("~"), "projects/whisper"))
+  @timeout 30_000
+  def transcribe!(audio) do
+    GenServer.call(__MODULE__, {:transcribe, audio}, @timeout)
+  end
+
+  def handle_call({:transcribe, audio}, _from, state) do
+    audio =
+      audio.data
+      |> Nx.from_binary(:f32)
+      |> Nx.reshape({:auto, audio.num_channels})
+      |> Nx.mean(axes: [1])
+
+    output = Nx.Serving.run(state.serving, audio)
+    {:reply, output, state}
   end
 end

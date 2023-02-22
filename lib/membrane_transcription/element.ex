@@ -1,4 +1,5 @@
 defmodule MembraneTranscription.Element do
+  alias MembraneTranscription.Whisper
   use Membrane.Filter
 
   def_options(
@@ -28,6 +29,10 @@ defmodule MembraneTranscription.Element do
   @assumed_sample_rate 16000
   # seconds
   @assumed_target_timeslices 5
+  @format_byte_size %{
+    f32le: 4
+  }
+  @channels 1
 
   @impl true
   def handle_init(%__MODULE{to_pid: pid, model: model}) do
@@ -55,15 +60,22 @@ defmodule MembraneTranscription.Element do
     # send(state.to_pid, {:transcript, transcript})
 
     buffered = [state.buffered | buffer.payload]
+    sample_size = @format_byte_size[:f32le]
 
-    buffered =
-      if IO.iodata_length(buffered) / @assumed_sample_rate > @assumed_target_timeslices do
+    {buffered, transcript} =
+      if IO.iodata_length(buffered) / sample_size / @assumed_sample_rate >
+           @assumed_target_timeslices do
         # TODO: Processing
         IO.inspect(IO.iodata_length(buffered), label: "buffer ready")
-        []
+        data = IO.iodata_to_binary(buffered)
+        {[], Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))}
       else
-        buffered
+        {buffered, nil}
       end
+
+    if transcript do
+      IO.inspect(transcript, label: "transcript")
+    end
 
     {{:ok, buffer: {:output, buffer}}, %{state | previous: buffer.payload, buffered: buffered}}
   end

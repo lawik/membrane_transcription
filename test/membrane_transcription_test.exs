@@ -180,6 +180,7 @@ defmodule MembraneTranscriptionTest do
   @tag timeout: :infinity
   test "sample pipeline" do
     # with_log(fn ->
+    {:ok, _} = MembraneTranscription.Whisper.start_link(nil)
     {:ok, pid} = Pipeline.start_link(filepath: @filepath, to_pid: self(), model: "tiny")
     Pipeline.play(pid)
 
