@@ -74,7 +74,7 @@ defmodule MembraneTranscription.Element do
           end)
 
         IO.puts(
-          "Transcribed #{state.start_ts}ms to #{buffer.metadata.elapsed_ms}ms in #{timing / 1000}ms."
+          "Transcribed #{state.start_ts}ms to #{buffer.metadata.ts}ms in #{floor(timing / 1000)}ms."
         )
 
         IO.inspect(transcript, label: "transcript")
@@ -82,12 +82,11 @@ defmodule MembraneTranscription.Element do
         {%{
            state
            | buffered: [],
-             start_ts: buffer.metadata.elapsed_ms,
-             end_ts: buffer.metadata.elapsed_ms
+             start_ts: buffer.metadata.ts,
+             end_ts: buffer.metadata.ts
          }, transcript}
       else
-        {%{state | buffered: buffered, end_ts: max(buffer.metadata.elapsed_ms, state.end_ts)},
-         nil}
+        {%{state | buffered: buffered, end_ts: max(buffer.metadata.ts, state.end_ts)}, nil}
       end
 
     {{:ok, buffer: {:output, buffer}}, state}
@@ -102,7 +101,7 @@ defmodule MembraneTranscription.Element do
       metadata: %{}
     }
 
-    {:ok, buffer: {:output, buffer}}
+    {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
   end
 
   @impl true

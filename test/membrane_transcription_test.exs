@@ -10,6 +10,9 @@ defmodule MembraneTranscriptionTest do
     use Membrane.Pipeline
 
     @target_sample_rate 16000
+    @bitdepth 32
+    @byte_per_sample @bitdepth / 8
+    @byte_per_second @target_sample_rate * @byte_per_sample
 
     @impl true
     def handle_init(opts) do
@@ -28,13 +31,13 @@ defmodule MembraneTranscriptionTest do
           }
         },
         realtime: %MembraneTranscription.Realtime{
-          bytes_per_second: 32 * @target_sample_rate,
+          bytes_per_second: @byte_per_second,
           resolution_ms: 10,
           delay_ms: 0
         },
         transcription: %MembraneTranscription.Element{to_pid: to_pid, model: model},
         delay: %MembraneTranscription.Realtime{
-          bytes_per_second: 32 * @target_sample_rate,
+          bytes_per_second: @byte_per_second,
           resolution_ms: 10,
           delay_ms: 5000
         },
