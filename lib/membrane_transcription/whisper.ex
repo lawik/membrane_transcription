@@ -1,11 +1,12 @@
 defmodule MembraneTranscription.Whisper do
   use GenServer
+  require Logger
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def init(opts) do
+  def init(_opts) do
     {:ok, whisper} = Bumblebee.load_model({:hf, "openai/whisper-base.en"})
     {:ok, featurizer} = Bumblebee.load_featurizer({:hf, "openai/whisper-base.en"})
     {:ok, tokenizer} = Bumblebee.load_tokenizer({:hf, "openai/whisper-base.en"})
@@ -29,6 +30,7 @@ defmodule MembraneTranscription.Whisper do
 
   @timeout 30_000
   def transcribe!(audio) do
+    Logger.info("Transcribing #{byte_size(audio.data)} byte...")
     GenServer.call(__MODULE__, {:transcribe, audio}, @timeout)
   end
 

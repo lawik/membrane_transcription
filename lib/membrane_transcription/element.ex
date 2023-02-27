@@ -36,7 +36,7 @@ defmodule MembraneTranscription.Element do
 
   @impl true
   def handle_init(%__MODULE{to_pid: pid, model: model}) do
-    state = %{to_pid: pid, model: model, previous: nil, buffered: []}
+    state = %{to_pid: pid, model: model, previous: nil, buffered: [], start_ts: 0, end_ts: 0}
 
     {:ok, state}
   end
@@ -52,7 +52,7 @@ defmodule MembraneTranscription.Element do
   end
 
   @impl true
-  def handle_process(:input, %Membrane.Buffer{} = buffer, context, state) do
+  def handle_process(:input, %Membrane.Buffer{} = buffer, _context, state) do
     # IO.inspect(buffer, label: "processing buffer")
     # IO.inspect(context, label: "context")
 
@@ -62,22 +62,47 @@ defmodule MembraneTranscription.Element do
     buffered = [state.buffered | buffer.payload]
     sample_size = @format_byte_size[:f32le]
 
-    {buffered, transcript} =
+    {state, _transcript} =
       if IO.iodata_length(buffered) / sample_size / @assumed_sample_rate >
            @assumed_target_timeslices do
-        # TODO: Processing
         IO.inspect(IO.iodata_length(buffered), label: "buffer ready")
         data = IO.iodata_to_binary(buffered)
-        {[], Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))}
+
+        {timing, transcript} =
+          :timer.tc(fn ->
+            Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
+          end)
+
+        IO.puts(
+          "Transcribed #{state.start_ts}ms to #{buffer.metadata.elapsed_ms}ms in #{timing / 1000}ms."
+        )
+
+        IO.inspect(transcript, label: "transcript")
+
+        {%{
+           state
+           | buffered: [],
+             start_ts: buffer.metadata.elapsed_ms,
+             end_ts: buffer.metadata.elapsed_ms
+         }, transcript}
       else
-        {buffered, nil}
+        {%{state | buffered: buffered, end_ts: max(buffer.metadata.elapsed_ms, state.end_ts)},
+         nil}
       end
 
-    if transcript do
-      IO.inspect(transcript, label: "transcript")
-    end
+    {{:ok, buffer: {:output, buffer}}, state}
+  end
 
-    {{:ok, buffer: {:output, buffer}}, %{state | previous: buffer.payload, buffered: buffered}}
+  @impl true
+  def handle_end_of_stream(_pad, _context, state) do
+    IO.puts("End of stream for transcriber...")
+
+    buffer = %Membrane.Buffer{
+      payload: state.buffered,
+      metadata: %{}
+    }
+
+    {:ok, buffer: {:output, buffer}}
   end
 
   @impl true

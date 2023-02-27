@@ -1,21 +1,7 @@
-# MembraneTranscription
+# Membrane Transcription
 
-**TODO: Add description**
+## FFMPEG for the right format
 
-## Installation
-
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `membrane_transcription` to your list of dependencies in `mix.exs`:
-
-```elixir
-def deps do
-  [
-    {:membrane_transcription, "~> 0.1.0"}
-  ]
-end
 ```
-
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/membrane_transcription>.
-
+ffmpeg -t 30 -i ~/Movies/Underjord-Short-005-v1.mp4 -f f32le -acodec pcm_f32le -ac 1 -ar 16000 -vn output.pcm
+```
