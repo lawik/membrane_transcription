@@ -30,17 +30,20 @@ defmodule MembraneTranscriptionTest do
             channels: 1
           }
         },
-        realtime: %MembraneTranscription.Realtime{
-          bytes_per_second: @byte_per_second,
-          resolution_ms: 10,
-          delay_ms: 0
+        # realtime: %MembraneTranscription.Realtime{
+        #   bytes_per_second: @byte_per_second,
+        #   resolution_ms: 10,
+        #   delay_ms: 0
+        # },
+        timestamper: %MembraneTranscription.Timestamper{
+          bytes_per_second: @byte_per_second
         },
         transcription: %MembraneTranscription.Element{to_pid: to_pid, model: model},
-        delay: %MembraneTranscription.Realtime{
-          bytes_per_second: @byte_per_second,
-          resolution_ms: 10,
-          delay_ms: 5000
-        },
+        # delay: %MembraneTranscription.Realtime{
+        #   bytes_per_second: @byte_per_second,
+        #   resolution_ms: 10,
+        #   delay_ms: 5000
+        # },
         fake_out: Membrane.Fake.Sink.Buffers
       }
 
@@ -48,9 +51,10 @@ defmodule MembraneTranscriptionTest do
         link(:file)
         |> to(:decoder)
         |> to(:converter)
-        |> to(:realtime)
+        # |> to(:realtime)
+        |> to(:timestamper)
         |> to(:transcription)
-        |> to(:delay)
+        # |> to(:delay)
         |> to(:fake_out)
       ]
 

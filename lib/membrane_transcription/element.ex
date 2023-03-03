@@ -34,9 +34,29 @@ defmodule MembraneTranscription.Element do
   }
   @channels 1
 
+  defp time, do: :erlang.system_time(:millisecond)
+
   @impl true
   def handle_init(%__MODULE{to_pid: pid, model: model}) do
-    state = %{to_pid: pid, model: model, previous: nil, buffered: [], start_ts: 0, end_ts: 0}
+    state = %{
+      to_pid: pid,
+      model: model,
+      previous: nil,
+      buffered: [],
+      start_ts: 0,
+      end_ts: 0,
+      started_at: time()
+    }
+
+    # Pre-heat the oven
+    blank = for _ <- 1..(@channels * @assumed_sample_rate), into: <<>>, do: <<0, 0, 0, 0>>
+
+    {timing, _transcript} =
+      :timer.tc(fn ->
+        Whisper.transcribe!(Whisper.new_audio(blank, @channels, @assumed_sample_rate))
+      end)
+
+    IO.puts("Whisper warmup timing: #{timing}")
 
     {:ok, state}
   end
@@ -62,46 +82,55 @@ defmodule MembraneTranscription.Element do
     buffered = [state.buffered | buffer.payload]
     sample_size = @format_byte_size[:f32le]
 
-    {state, _transcript} =
-      if IO.iodata_length(buffered) / sample_size / @assumed_sample_rate >
-           @assumed_target_timeslices do
-        IO.inspect(IO.iodata_length(buffered), label: "buffer ready")
-        data = IO.iodata_to_binary(buffered)
+    if IO.iodata_length(buffered) / sample_size / @assumed_sample_rate >
+         @assumed_target_timeslices do
+      IO.inspect(IO.iodata_length(buffered), label: "buffer ready")
 
-        {timing, transcript} =
-          :timer.tc(fn ->
-            Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
-          end)
+      data = IO.iodata_to_binary(buffered)
 
-        IO.puts(
-          "Transcribed #{state.start_ts}ms to #{buffer.metadata.ts}ms in #{floor(timing / 1000)}ms."
-        )
+      {timing, transcript} =
+        :timer.tc(fn ->
+          Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
+        end)
 
-        IO.inspect(transcript, label: "transcript")
+      IO.puts(
+        "Transcribed #{state.start_ts}ms to #{buffer.metadata.end_ts}ms in #{floor(timing / 1000)}ms."
+      )
 
-        {%{
-           state
-           | buffered: [],
-             start_ts: buffer.metadata.ts,
-             end_ts: buffer.metadata.ts
-         }, transcript}
-      else
-        {%{state | buffered: buffered, end_ts: max(buffer.metadata.ts, state.end_ts)}, nil}
-      end
+      IO.inspect(transcript, label: "transcript")
 
-    {{:ok, buffer: {:output, buffer}}, state}
+      state = %{
+        state
+        | buffered: [],
+          start_ts: buffer.metadata.end_ts,
+          end_ts: buffer.metadata.end_ts
+      }
+
+      {{:ok, buffer: {:output, buffer}}, state}
+    else
+      state = %{state | buffered: buffered, end_ts: max(buffer.metadata.end_ts, state.end_ts)}
+      {{:ok, buffer: {:output, buffer}}, state}
+    end
   end
 
   @impl true
   def handle_end_of_stream(_pad, _context, state) do
     IO.puts("End of stream for transcriber...")
+    IO.inspect(IO.iodata_length(state.buffered), label: "final buffer")
+    data = IO.iodata_to_binary(state.buffered)
 
-    buffer = %Membrane.Buffer{
-      payload: state.buffered,
-      metadata: %{}
-    }
+    {timing, transcript} =
+      :timer.tc(fn ->
+        Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
+      end)
 
-    {{:ok, buffer: {:output, buffer}, end_of_stream: :output}, state}
+    IO.puts("Transcribed #{state.start_ts}ms to #{state.end_ts}ms in #{floor(timing / 1000)}ms.")
+
+    IO.inspect(transcript, label: "final transcript")
+    t = time()
+    IO.inspect("transcription element runtime #{t - state.started_at}ms")
+
+    {{:ok, end_of_stream: :output}, state}
   end
 
   @impl true
