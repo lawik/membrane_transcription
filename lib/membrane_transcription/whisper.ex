@@ -6,10 +6,11 @@ defmodule MembraneTranscription.Whisper do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def init(_opts) do
-    {:ok, whisper} = Bumblebee.load_model({:hf, "openai/whisper-base.en"})
-    {:ok, featurizer} = Bumblebee.load_featurizer({:hf, "openai/whisper-base.en"})
-    {:ok, tokenizer} = Bumblebee.load_tokenizer({:hf, "openai/whisper-base.en"})
+  def init(opts) do
+    model = Keyword.fetch!(opts, :model)
+    {:ok, whisper} = Bumblebee.load_model({:hf, "openai/whisper-#{model}"})
+    {:ok, featurizer} = Bumblebee.load_featurizer({:hf, "openai/whisper-#{model}"})
+    {:ok, tokenizer} = Bumblebee.load_tokenizer({:hf, "openai/whisper-#{model}"})
 
     serving =
       Bumblebee.Audio.speech_to_text(whisper, featurizer, tokenizer,

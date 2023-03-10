@@ -3,15 +3,10 @@ defmodule MembraneTranscription.Element do
   use Membrane.Filter
 
   def_options(
-    to_pid: [
+    buffer_duration: [
       spec: :any,
-      default: nil,
-      description: "PID to report to"
-    ],
-    model: [
-      spec: :any,
-      default: "base",
-      description: "Model to use"
+      default: 5,
+      description: "Duration of each chunk transcribed in seconds"
     ]
   )
 
@@ -28,7 +23,6 @@ defmodule MembraneTranscription.Element do
 
   @assumed_sample_rate 16000
   # seconds
-  @assumed_target_timeslices 5
   @format_byte_size %{
     f32le: 4
   }
@@ -37,10 +31,9 @@ defmodule MembraneTranscription.Element do
   defp time, do: :erlang.system_time(:millisecond)
 
   @impl true
-  def handle_init(%__MODULE{to_pid: pid, model: model}) do
+  def handle_init(%__MODULE{buffer_duration: buffer_duration}) do
     state = %{
-      to_pid: pid,
-      model: model,
+      buffer_duration: buffer_duration,
       previous: nil,
       buffered: [],
       start_ts: 0,
@@ -73,17 +66,11 @@ defmodule MembraneTranscription.Element do
 
   @impl true
   def handle_process(:input, %Membrane.Buffer{} = buffer, _context, state) do
-    # IO.inspect(buffer, label: "processing buffer")
-    # IO.inspect(context, label: "context")
-
-    # transcript = MembraneTranscription.Whisper.transcribe!(buffer.payload, "pcm", state.model)
-    # send(state.to_pid, {:transcript, transcript})
-
     buffered = [state.buffered | buffer.payload]
     sample_size = @format_byte_size[:f32le]
 
     if IO.iodata_length(buffered) / sample_size / @assumed_sample_rate >
-         @assumed_target_timeslices do
+         state.buffer_duration do
       IO.inspect(IO.iodata_length(buffered), label: "buffer ready")
 
       data = IO.iodata_to_binary(buffered)
@@ -99,6 +86,14 @@ defmodule MembraneTranscription.Element do
 
       IO.inspect(transcript, label: "transcript")
 
+      type =
+        case state.start_ts do
+          0 -> :start
+          _ -> :mid
+        end
+
+      notification = {:transcribed, transcript, type, state.start_ts, buffer.metadata.end_ts}
+
       state = %{
         state
         | buffered: [],
@@ -106,7 +101,7 @@ defmodule MembraneTranscription.Element do
           end_ts: buffer.metadata.end_ts
       }
 
-      {{:ok, buffer: {:output, buffer}}, state}
+      {{:ok, buffer: {:output, buffer}, notify: notification}, state}
     else
       state = %{state | buffered: buffered, end_ts: max(buffer.metadata.end_ts, state.end_ts)}
       {{:ok, buffer: {:output, buffer}}, state}
@@ -129,8 +124,9 @@ defmodule MembraneTranscription.Element do
     IO.inspect(transcript, label: "final transcript")
     t = time()
     IO.inspect("transcription element runtime #{t - state.started_at}ms")
+    notification = {:transcribed, transcript, :end, state.start_ts, state.end_ts}
 
-    {{:ok, end_of_stream: :output}, state}
+    {{:ok, end_of_stream: :output, notify: notification}, state}
   end
 
   @impl true
@@ -142,7 +138,6 @@ defmodule MembraneTranscription.Element do
   @impl true
   def handle_prepared_to_stopped(_ctx, state) do
     IO.puts("Ending transcription element")
-    send(state.to_pid, :transcription_done)
     {:ok, state}
   end
 end
