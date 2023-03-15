@@ -6,6 +6,7 @@ defmodule MembraneTranscription.Whisper do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @impl true
   def init(opts) do
     model = Keyword.fetch!(opts, :model)
     {:ok, whisper} = Bumblebee.load_model({:hf, "openai/whisper-#{model}"})
@@ -35,6 +36,7 @@ defmodule MembraneTranscription.Whisper do
     GenServer.call(__MODULE__, {:transcribe, audio}, @timeout)
   end
 
+  @impl true
   def handle_call({:transcribe, audio}, _from, state) do
     audio =
       audio.data

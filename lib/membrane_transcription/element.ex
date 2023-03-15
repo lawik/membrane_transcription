@@ -1,5 +1,6 @@
 defmodule MembraneTranscription.Element do
   alias MembraneTranscription.Whisper
+  alias MembraneTranscription.FancyWhisper
   use Membrane.Filter
 
   def_options(
@@ -7,6 +8,11 @@ defmodule MembraneTranscription.Element do
       spec: :any,
       default: 5,
       description: "Duration of each chunk transcribed in seconds"
+    ],
+    fancy?: [
+      spec: :any,
+      default: false,
+      description: "Use fancy whisper?"
     ]
   )
 
@@ -31,14 +37,15 @@ defmodule MembraneTranscription.Element do
   defp time, do: :erlang.system_time(:millisecond)
 
   @impl true
-  def handle_init(%__MODULE{buffer_duration: buffer_duration}) do
+  def handle_init(%__MODULE{buffer_duration: buffer_duration, fancy?: fancy?}) do
     state = %{
       buffer_duration: buffer_duration,
       previous: nil,
       buffered: [],
       start_ts: 0,
       end_ts: 0,
-      started_at: time()
+      started_at: time(),
+      fancy?: fancy?
     }
 
     # Pre-heat the oven
@@ -46,7 +53,11 @@ defmodule MembraneTranscription.Element do
 
     {timing, _transcript} =
       :timer.tc(fn ->
-        Whisper.transcribe!(Whisper.new_audio(blank, @channels, @assumed_sample_rate))
+        if state.fancy? do
+          FancyWhisper.transcribe!(FancyWhisper.new_audio(blank, @channels, @assumed_sample_rate))
+        else
+          Whisper.transcribe!(Whisper.new_audio(blank, @channels, @assumed_sample_rate))
+        end
       end)
 
     IO.puts("Whisper warmup timing: #{timing}")
@@ -77,7 +88,13 @@ defmodule MembraneTranscription.Element do
 
       {timing, transcript} =
         :timer.tc(fn ->
-          Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
+          if state.fancy? do
+            FancyWhisper.transcribe!(
+              FancyWhisper.new_audio(data, @channels, @assumed_sample_rate)
+            )
+          else
+            Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
+          end
         end)
 
       IO.puts(
