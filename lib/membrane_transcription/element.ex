@@ -23,7 +23,7 @@ defmodule MembraneTranscription.Element do
 
   def_output_pad(:output,
     availability: :always,
-    mode: :pull,
+    mode: :push,
     caps: :any
   )
 
@@ -51,16 +51,20 @@ defmodule MembraneTranscription.Element do
     # Pre-heat the oven
     blank = for _ <- 1..(@channels * @assumed_sample_rate), into: <<>>, do: <<0, 0, 0, 0>>
 
-    {timing, _transcript} =
-      :timer.tc(fn ->
-        if state.fancy? do
-          FancyWhisper.transcribe!(FancyWhisper.new_audio(blank, @channels, @assumed_sample_rate))
-        else
-          Whisper.transcribe!(Whisper.new_audio(blank, @channels, @assumed_sample_rate))
-        end
-      end)
+    Task.start(fn ->
+      {timing, _transcript} =
+        :timer.tc(fn ->
+          if state.fancy? do
+            FancyWhisper.transcribe!(
+              FancyWhisper.new_audio(blank, @channels, @assumed_sample_rate)
+            )
+          else
+            Whisper.transcribe!(Whisper.new_audio(blank, @channels, @assumed_sample_rate))
+          end
+        end)
 
-    IO.puts("Whisper warmup timing: #{timing}")
+      IO.puts("Whisper warmup timing: #{timing}")
+    end)
 
     {:ok, state}
   end
@@ -68,11 +72,6 @@ defmodule MembraneTranscription.Element do
   @impl true
   def handle_prepared_to_playing(_ctx, state) do
     {{:ok, demand: :input}, state}
-  end
-
-  @impl true
-  def handle_demand(:output, size, :buffers, _context, state) do
-    {{:ok, demand: {:input, size}}, state}
   end
 
   @impl true
@@ -86,30 +85,35 @@ defmodule MembraneTranscription.Element do
 
       data = IO.iodata_to_binary(buffered)
 
-      {timing, transcript} =
-        :timer.tc(fn ->
-          if state.fancy? do
-            FancyWhisper.transcribe!(
-              FancyWhisper.new_audio(data, @channels, @assumed_sample_rate)
-            )
-          else
-            Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
+      send_to = self()
+
+      Task.start(fn ->
+        type =
+          case state.start_ts do
+            0 -> :start
+            _ -> :mid
           end
-        end)
 
-      IO.puts(
-        "Transcribed #{state.start_ts}ms to #{buffer.metadata.end_ts}ms in #{floor(timing / 1000)}ms."
-      )
+        {timing, transcript} =
+          :timer.tc(fn ->
+            if state.fancy? do
+              FancyWhisper.transcribe!(
+                FancyWhisper.new_audio(data, @channels, @assumed_sample_rate)
+              )
+            else
+              Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
+            end
+          end)
 
-      IO.inspect(transcript, label: "transcript")
+        IO.puts(
+          "Transcribed async #{state.start_ts}ms to #{buffer.metadata.end_ts}ms in #{floor(timing / 1000)}ms."
+        )
 
-      type =
-        case state.start_ts do
-          0 -> :start
-          _ -> :mid
-        end
+        notification = {:transcribed, transcript, type, state.start_ts, buffer.metadata.end_ts}
 
-      notification = {:transcribed, transcript, type, state.start_ts, buffer.metadata.end_ts}
+        IO.inspect(transcript, label: "transcript")
+        send(send_to, {:transcript, transcript, notification})
+      end)
 
       state = %{
         state
@@ -118,7 +122,7 @@ defmodule MembraneTranscription.Element do
           end_ts: buffer.metadata.end_ts
       }
 
-      {{:ok, buffer: {:output, buffer}, notify: notification}, state}
+      {{:ok, buffer: {:output, buffer}}, state}
     else
       state = %{state | buffered: buffered, end_ts: max(buffer.metadata.end_ts, state.end_ts)}
       {{:ok, buffer: {:output, buffer}}, state}
@@ -144,6 +148,11 @@ defmodule MembraneTranscription.Element do
     notification = {:transcribed, transcript, :end, state.start_ts, state.end_ts}
 
     {{:ok, end_of_stream: :output, notify: notification}, state}
+  end
+
+  @impl true
+  def handle_other({:transcript, _transcript, notification}, _ctx, state) do
+    {{:ok, notify: notification}, state}
   end
 
   @impl true

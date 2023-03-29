@@ -18,7 +18,7 @@ defmodule MembraneTranscription.Timestamper do
 
   def_output_pad(:output,
     availability: :always,
-    mode: :pull,
+    mode: :push,
     caps: :any
   )
 
@@ -44,11 +44,6 @@ defmodule MembraneTranscription.Timestamper do
   @impl true
   def handle_prepared_to_playing(_ctx, state) do
     {{:ok, demand: :input}, state}
-  end
-
-  @impl true
-  def handle_demand(:output, size, :buffers, _context, state) do
-    {{:ok, demand: {:input, size}}, state}
   end
 
   @impl true
