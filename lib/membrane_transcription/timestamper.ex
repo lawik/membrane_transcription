@@ -51,9 +51,27 @@ defmodule MembraneTranscription.Timestamper do
     {{:ok, demand: {:input, size}}, state}
   end
 
+  defp to_samples(bytes, size, values \\ []) do
+    case bytes do
+      <<sample::binary-size(size), rest::binary>> ->
+        to_samples(rest, size, [values, sample])
+
+      <<>> ->
+        List.flatten(values)
+    end
+  end
+
   @impl true
-  def handle_process(:input, %Membrane.Buffer{} = buffer, _context, state) do
+  def handle_process(:input, %Membrane.Buffer{} = buffer, context, state) do
     state = %{state | count_in: state.count_in + 1}
+
+    %Membrane.RawAudio{} = format = context.pads.input.caps
+    sample_size = Membrane.RawAudio.sample_size(format)
+
+    values =
+      buffer.payload
+      |> to_samples(sample_size)
+      |> Enum.map(&Membrane.RawAudio.sample_to_value(&1, format))
 
     byte_count = IO.iodata_length(buffer.payload)
     duration = floor(byte_count / state.millisecond_bytes)
@@ -61,6 +79,31 @@ defmodule MembraneTranscription.Timestamper do
     state = %{state | processed_bytes: state.processed_bytes + byte_count}
     end_ts = floor(state.processed_bytes / state.millisecond_bytes)
     metadata = buffer.metadata || %{}
+
+    if start_ts > 2000 do
+      # IO.inspect(buffer.payload)
+      IO.inspect(Enum.count(values))
+      IO.inspect(values)
+    end
+
+    if start_ts > 2500 do
+      IO.inspect(buffer.metadata)
+      IO.inspect(context)
+      IO.inspect(Membrane.RawAudio.sample_min(format), label: "min")
+      IO.inspect(Membrane.RawAudio.sample_max(format), label: "max")
+
+      IO.inspect(
+        Membrane.RawAudio.silence(%Membrane.RawAudio{
+          sample_format: :f32le,
+          sample_rate: 16000,
+          channels: 1
+        })
+        |> Membrane.RawAudio.sample_to_value(format),
+        label: "silence"
+      )
+
+      raise "foo"
+    end
 
     out_buffer =
       {:output,

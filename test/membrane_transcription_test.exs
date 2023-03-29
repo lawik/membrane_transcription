@@ -38,7 +38,7 @@ defmodule MembraneTranscriptionTest do
         timestamper: %MembraneTranscription.Timestamper{
           bytes_per_second: @byte_per_second
         },
-        transcription: %MembraneTranscription.Element{to_pid: to_pid, model: model},
+        # transcription: %MembraneTranscription.Element{to_pid: to_pid, model: model},
         # delay: %MembraneTranscription.Realtime{
         #   bytes_per_second: @byte_per_second,
         #   resolution_ms: 10,
@@ -53,7 +53,7 @@ defmodule MembraneTranscriptionTest do
         |> to(:converter)
         # |> to(:realtime)
         |> to(:timestamper)
-        |> to(:transcription)
+        # |> to(:transcription)
         # |> to(:delay)
         |> to(:fake_out)
       ]
@@ -138,7 +138,7 @@ defmodule MembraneTranscriptionTest do
   @tag timeout: :infinity
   test "sample pipeline" do
     # with_log(fn ->
-    {:ok, _} = MembraneTranscription.Whisper.start_link(nil)
+    # {:ok, _} = MembraneTranscription.Whisper.start_link(nil)
     {:ok, pid} = Pipeline.start_link(filepath: @filepath, to_pid: self(), model: "tiny")
     Pipeline.play(pid)
 
