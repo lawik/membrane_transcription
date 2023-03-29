@@ -26,6 +26,21 @@ defmodule MembraneTranscription.FancyWhisper do
         batch_timeout: 100
       )
 
+    blank = for _ <- 1..16000, into: <<>>, do: <<0, 0, 0, 0>>
+
+    audio =
+      blank
+      |> Nx.from_binary(:f32)
+      |> Nx.reshape({:auto, 1})
+      |> Nx.mean(axes: [1])
+
+    {t, _} =
+      :timer.tc(fn ->
+        Nx.Serving.batched_run(MembraneTranscription.FancyWhisper.Serving, audio)
+      end)
+
+    Logger.info("Warmed up whisper in #{t / 1000}ms")
+
     {:ok, %{serving: serving, normal_queue: [], priority_queue: [], pid: pid}}
   end
 
@@ -71,7 +86,7 @@ defmodule MembraneTranscription.FancyWhisper do
   def handle_info(:process, state) do
     state.priority_queue
     |> Enum.map(fn {from, input} ->
-      Task.async(fn ->
+      Task.start(fn ->
         output = Nx.Serving.batched_run(MembraneTranscription.FancyWhisper.Serving, input)
         GenServer.reply(from, output)
       end)

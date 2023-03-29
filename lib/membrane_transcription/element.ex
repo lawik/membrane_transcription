@@ -13,6 +13,11 @@ defmodule MembraneTranscription.Element do
       spec: :any,
       default: false,
       description: "Use fancy whisper?"
+    ],
+    priority: [
+      spec: :any,
+      default: :normal,
+      description: "normal or high"
     ]
   )
 
@@ -23,7 +28,7 @@ defmodule MembraneTranscription.Element do
 
   def_output_pad(:output,
     availability: :always,
-    mode: :push,
+    mode: :pull,
     caps: :any
   )
 
@@ -37,7 +42,7 @@ defmodule MembraneTranscription.Element do
   defp time, do: :erlang.system_time(:millisecond)
 
   @impl true
-  def handle_init(%__MODULE{buffer_duration: buffer_duration, fancy?: fancy?}) do
+  def handle_init(%__MODULE{buffer_duration: buffer_duration, fancy?: fancy?, priority: priority}) do
     state = %{
       buffer_duration: buffer_duration,
       previous: nil,
@@ -45,26 +50,9 @@ defmodule MembraneTranscription.Element do
       start_ts: 0,
       end_ts: 0,
       started_at: time(),
-      fancy?: fancy?
+      fancy?: fancy?,
+      priority: priority
     }
-
-    # Pre-heat the oven
-    blank = for _ <- 1..(@channels * @assumed_sample_rate), into: <<>>, do: <<0, 0, 0, 0>>
-
-    Task.start(fn ->
-      {timing, _transcript} =
-        :timer.tc(fn ->
-          if state.fancy? do
-            FancyWhisper.transcribe!(
-              FancyWhisper.new_audio(blank, @channels, @assumed_sample_rate)
-            )
-          else
-            Whisper.transcribe!(Whisper.new_audio(blank, @channels, @assumed_sample_rate))
-          end
-        end)
-
-      IO.puts("Whisper warmup timing: #{timing}")
-    end)
 
     {:ok, state}
   end
@@ -98,7 +86,8 @@ defmodule MembraneTranscription.Element do
           :timer.tc(fn ->
             if state.fancy? do
               FancyWhisper.transcribe!(
-                FancyWhisper.new_audio(data, @channels, @assumed_sample_rate)
+                FancyWhisper.new_audio(data, @channels, @assumed_sample_rate),
+                state.priority
               )
             else
               Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
@@ -130,6 +119,11 @@ defmodule MembraneTranscription.Element do
   end
 
   @impl true
+  def handle_demand(:output, size, :buffers, _context, state) do
+    {{:ok, demand: {:input, size}}, state}
+  end
+
+  @impl true
   def handle_end_of_stream(_pad, _context, state) do
     IO.puts("End of stream for transcriber...")
     IO.inspect(IO.iodata_length(state.buffered), label: "final buffer")
@@ -137,7 +131,7 @@ defmodule MembraneTranscription.Element do
 
     {timing, transcript} =
       :timer.tc(fn ->
-        Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
+        FancyWhisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
       end)
 
     IO.puts("Transcribed #{state.start_ts}ms to #{state.end_ts}ms in #{floor(timing / 1000)}ms.")

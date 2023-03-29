@@ -30,7 +30,7 @@ defmodule MembraneTranscription.Whisper do
     }
   end
 
-  @timeout 30_000
+  @timeout 200_000
   def transcribe!(audio) do
     Logger.info("Transcribing #{byte_size(audio.data)} byte...")
     GenServer.call(__MODULE__, {:transcribe, audio}, @timeout)
@@ -38,6 +38,8 @@ defmodule MembraneTranscription.Whisper do
 
   @impl true
   def handle_call({:transcribe, audio}, _from, state) do
+    IO.inspect("transcribing #{byte_size(audio.data)}")
+
     audio =
       audio.data
       |> Nx.from_binary(:f32)
@@ -45,6 +47,7 @@ defmodule MembraneTranscription.Whisper do
       |> Nx.mean(axes: [1])
 
     output = Nx.Serving.run(state.serving, audio)
+    IO.inspect("transcribed")
     {:reply, output, state}
   end
 end

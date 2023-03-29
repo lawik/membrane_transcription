@@ -18,7 +18,7 @@ defmodule MembraneTranscription.Timestamper do
 
   def_output_pad(:output,
     availability: :always,
-    mode: :push,
+    mode: :pull,
     caps: :any
   )
 
@@ -72,6 +72,11 @@ defmodule MembraneTranscription.Timestamper do
     actions = [demand: :input, buffer: out_buffer]
 
     {{:ok, actions}, %{state | count_out: state.count_out + 1}}
+  end
+
+  @impl true
+  def handle_demand(:output, size, :buffers, _context, state) do
+    {{:ok, demand: {:input, size}}, state}
   end
 
   @impl true
