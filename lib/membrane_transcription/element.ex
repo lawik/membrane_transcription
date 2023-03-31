@@ -85,18 +85,18 @@ defmodule MembraneTranscription.Element do
         }
       else
         # This process flattens or binary
-        #     remaining_bytes =
-        #        case detect_silence(data) do
-        #           {<<>>, bytes_to_save} ->
-        #              bytes_to_save
+        # remaining_bytes =
+        #   case detect_silence(data) do
+        #     {<<>>, bytes_to_save} ->
+        #       bytes_to_save
 
-        #       {bytes_to_transcribe, bytes_to_save} ->
-        # TODO: Fix lying end_ts
-        #          IO.puts("silenced detected #{byte_size(bytes_to_transcribe)}")
-        #           trigger_transcript(bytes_to_transcribe, state, buffer.metadata.end_ts)
-        #            bytes_to_save
-        #         end
-        #
+        #     {bytes_to_transcribe, bytes_to_save} ->
+        #       # TODO: Fix lying end_ts
+        #       IO.puts("silenced detected #{byte_size(bytes_to_transcribe)}")
+        #       trigger_transcript(bytes_to_transcribe, state, buffer.metadata.end_ts)
+        #       bytes_to_save
+        #   end
+
         # %{state | buffered: [remaining_bytes], end_ts: max(buffer.metadata.end_ts, state.end_ts)}
         %{state | buffered: [data], end_ts: max(buffer.metadata.end_ts, state.end_ts)}
       end
@@ -134,9 +134,51 @@ defmodule MembraneTranscription.Element do
   end
 
   @tolerate_silent_samples 16000 * (@tolerate_silence_ms / 1000)
-  defp find_silence(data, offset \\ 0, contiguous \\ 0) do
+  @tolerate_bits floor(@tolerate_silent_samples * 4)
+  defp grab_samples(data, samples \\ []) do
+    case data do
+      <<sample::size(32)-float-little, rest::binary>> ->
+        positive = abs(sample)
+        grab_samples(rest, [samples, positive])
+
+      <<>> ->
+        List.flatten(samples)
+    end
+  end
+
+  defp find_silence(data, offset \\ 0) do
+    case data do
+      <<val::binary-size(@tolerate_bits), rest::binary>> ->
+        samples = grab_samples(val)
+        c = Enum.count(samples)
+
+        {mn, mx, sm} =
+          Enum.reduce(samples, {nil, nil, 0}, fn v, {mn, mx, sm} ->
+            mn = mn || v
+            mx = mx || v
+            {min(mn, v), max(mx, v), sm + v}
+          end)
+
+        avg = sm / c
+        rng = mx - mn
+        IO.inspect(%{min: mn, max: mx, avg: avg, range: rng})
+
+        -1
+
+      _ ->
+        -1
+
+      <<>> ->
+        # IO.inspect(contiguous, label: "contiguous silence")
+        -1
+    end
+  end
+
+  defp find_silence_2(data, offset \\ 0, contiguous \\ 0) do
     case data do
       <<val::size(32)-float-little, rest::binary>> ->
+        IO.inspect(:erlang.float_to_binary(val, decimals: 5))
+
         {break?, contiguous} =
           if val < @silence_ceiling and val > @silence_floor do
             {false, contiguous + 1}
@@ -159,7 +201,7 @@ defmodule MembraneTranscription.Element do
         if break? do
           offset * 4
         else
-          find_silence(rest, offset + 1, contiguous)
+          find_silence_2(rest, offset + 1, contiguous)
         end
 
       <<>> ->
