@@ -1,4 +1,5 @@
 defmodule MembraneTranscription.Element do
+  alias Membrane.RawAudio
   alias MembraneTranscription.Whisper
   alias MembraneTranscription.FancyWhisper
   use Membrane.Filter
@@ -67,8 +68,29 @@ defmodule MembraneTranscription.Element do
 
   @impl true
   def handle_process(:input, %Membrane.Buffer{} = buffer, _context, state) do
-    buffered = [state.buffered | buffer.payload]
+    buffered = [state.buffered, buffer.payload]
     sample_size = @format_byte_size[:f32le]
+
+    # amps =
+    #   buffered
+    #   |> List.flatten()
+    #   |> Enum.map(fn chunk ->
+    #     {:ok, {amplitudes, _rest}} =
+    #       MembraneTranscription.Amplitude.find_amplitudes(chunk, %RawAudio{
+    #         sample_format: :f32le,
+    #         sample_rate: 16000,
+    #         channels: 1
+    #       })
+
+    #     hd(amplitudes)
+    #   end)
+
+    # mn = Enum.min(amps)
+    # mx = Enum.max(amps)
+    # sm = Enum.sum(amps)
+    # av = sm / Enum.count(amps)
+    # IO.puts("min: #{mn}    max: #{mx}    sum: #{sm}    avg: #{av}")
+
     data = IO.iodata_to_binary(buffered)
 
     state =
