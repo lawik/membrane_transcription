@@ -32,6 +32,8 @@ defmodule MembraneTranscription.Element do
     caps: :any
   )
 
+  @silence <<0, 0, 0, 0>>
+  @tolerate_silence_ms 600
   @assumed_sample_rate 16000
   # seconds
   @format_byte_size %{
@@ -66,56 +68,141 @@ defmodule MembraneTranscription.Element do
   def handle_process(:input, %Membrane.Buffer{} = buffer, _context, state) do
     buffered = [state.buffered | buffer.payload]
     sample_size = @format_byte_size[:f32le]
+    data = IO.iodata_to_binary(buffered)
 
-    if IO.iodata_length(buffered) / sample_size / @assumed_sample_rate >
-         state.buffer_duration do
-      IO.inspect(IO.iodata_length(buffered), label: "buffer ready")
+    state =
+      if byte_size(data) / sample_size / @assumed_sample_rate >
+           state.buffer_duration do
+        trigger_transcript(data, state, buffer.metadata.end_ts)
 
-      data = IO.iodata_to_binary(buffered)
+        %{
+          state
+          | buffered: [],
+            start_ts: buffer.metadata.end_ts,
+            end_ts: buffer.metadata.end_ts
+        }
+      else
+        # This process flattens or binary
+        #     remaining_bytes =
+        #        case detect_silence(data) do
+        #           {<<>>, bytes_to_save} ->
+        #              bytes_to_save
 
-      send_to = self()
+        #       {bytes_to_transcribe, bytes_to_save} ->
+        # TODO: Fix lying end_ts
+        #          IO.puts("silenced detected #{byte_size(bytes_to_transcribe)}")
+        #           trigger_transcript(bytes_to_transcribe, state, buffer.metadata.end_ts)
+        #            bytes_to_save
+        #         end
+        #
+        # %{state | buffered: [remaining_bytes], end_ts: max(buffer.metadata.end_ts, state.end_ts)}
+        %{state | buffered: [data], end_ts: max(buffer.metadata.end_ts, state.end_ts)}
+      end
 
-      Task.start(fn ->
-        type =
-          case state.start_ts do
-            0 -> :start
-            _ -> :mid
+    {{:ok, buffer: {:output, buffer}}, state}
+  end
+
+  @silence_ceiling 0.2
+  @silence_floor -0.2
+  defp detect_silence(data) do
+    data = trim_leading_silence(data)
+
+    case find_silence(data) do
+      -1 ->
+        {<<>>, data}
+
+      offset ->
+        <<transcribe::binary-size(offset), keep::binary>> = data
+        {transcribe, keep}
+    end
+  end
+
+  defp trim_leading_silence(data) do
+    case data do
+      <<val::size(32)-float-little, rest::binary>> ->
+        if val < @silence_ceiling and val > @silence_floor do
+          trim_leading_silence(rest)
+        else
+          rest
+        end
+
+      <<>> ->
+        <<>>
+    end
+  end
+
+  @tolerate_silent_samples 16000 * (@tolerate_silence_ms / 1000)
+  defp find_silence(data, offset \\ 0, contiguous \\ 0) do
+    case data do
+      <<val::size(32)-float-little, rest::binary>> ->
+        {break?, contiguous} =
+          if val < @silence_ceiling and val > @silence_floor do
+            {false, contiguous + 1}
+          else
+            if contiguous > @tolerate_silent_samples do
+              IO.puts(
+                "Not tolerating #{contiguous} (more than #{round(@tolerate_silent_samples)}) samples of silence... break"
+              )
+
+              {true, contiguous}
+            else
+              if contiguous > 0 do
+                IO.puts("Tolerated #{contiguous} samples of silence... reset on #{val}")
+              end
+
+              {false, 0}
+            end
           end
 
-        {timing, transcript} =
-          :timer.tc(fn ->
-            if state.fancy? do
-              FancyWhisper.transcribe!(
-                FancyWhisper.new_audio(data, @channels, @assumed_sample_rate),
-                state.priority
-              )
-            else
-              Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
-            end
-          end)
+        if break? do
+          offset * 4
+        else
+          find_silence(rest, offset + 1, contiguous)
+        end
 
-        IO.puts(
-          "Transcribed async #{state.start_ts}ms to #{buffer.metadata.end_ts}ms in #{floor(timing / 1000)}ms."
-        )
-
-        notification = {:transcribed, transcript, type, state.start_ts, buffer.metadata.end_ts}
-
-        IO.inspect(transcript, label: "transcript")
-        send(send_to, {:transcript, transcript, notification})
-      end)
-
-      state = %{
-        state
-        | buffered: [],
-          start_ts: buffer.metadata.end_ts,
-          end_ts: buffer.metadata.end_ts
-      }
-
-      {{:ok, buffer: {:output, buffer}}, state}
-    else
-      state = %{state | buffered: buffered, end_ts: max(buffer.metadata.end_ts, state.end_ts)}
-      {{:ok, buffer: {:output, buffer}}, state}
+      <<>> ->
+        # IO.inspect(contiguous, label: "contiguous silence")
+        -1
     end
+  end
+
+  # @bytes_of_silence ((@assumed_sample_rate * 4) * (@tolerate_silence_ms / 1000))
+  # defp find_silence(<<0::binary-size(@bytes_of_silence), rest::binary>>, silence) do
+  #  IO.puts("found silence")
+  #  {}
+  # end
+
+  defp trigger_transcript(data, state, end_ts) do
+    send_to = self()
+
+    Task.start(fn ->
+      type =
+        case state.start_ts do
+          0 -> :start
+          _ -> :mid
+        end
+
+      {timing, transcript} =
+        :timer.tc(fn ->
+          if state.fancy? do
+            FancyWhisper.transcribe!(
+              FancyWhisper.new_audio(data, @channels, @assumed_sample_rate),
+              state.priority
+            )
+          else
+            Whisper.transcribe!(Whisper.new_audio(data, @channels, @assumed_sample_rate))
+          end
+        end)
+
+      IO.puts(
+        "Transcribed async #{state.start_ts}ms to #{end_ts}ms in #{floor(timing / 1000)}ms."
+      )
+
+      notification = {:transcribed, transcript, type, state.start_ts, end_ts}
+
+      IO.inspect(transcript, label: "transcript")
+      send(send_to, {:transcript, transcript, notification})
+    end)
   end
 
   @impl true
