@@ -53,7 +53,8 @@ defmodule MembraneTranscription.Element do
       end_ts: 0,
       started_at: time(),
       fancy?: fancy?,
-      priority: priority
+      priority: priority,
+      transcribing?: false
     }
 
     {:ok, state}
@@ -72,14 +73,15 @@ defmodule MembraneTranscription.Element do
 
     state =
       if byte_size(data) / sample_size / @assumed_sample_rate >
-           state.buffer_duration do
+           state.buffer_duration and not state.transcribing? do
         trigger_transcript(data, state, buffer.metadata.end_ts)
 
         %{
           state
           | buffered: [],
             start_ts: buffer.metadata.end_ts,
-            end_ts: buffer.metadata.end_ts
+            end_ts: buffer.metadata.end_ts,
+            transcribing?: true
         }
       else
         # This process flattens or binary
@@ -233,7 +235,7 @@ defmodule MembraneTranscription.Element do
 
   @impl true
   def handle_other({:transcript, _transcript, notification}, _ctx, state) do
-    {{:ok, notify: notification}, state}
+    {{:ok, notify: notification}, %{state | transcribing?: false}}
   end
 
   @impl true
