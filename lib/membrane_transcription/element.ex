@@ -1,15 +1,18 @@
 defmodule MembraneTranscription.Element do
+  # TODO: Can probably rename this. Maybe Filter instead of Element as it is a pass-through
   alias Membrane.RawAudio
   alias MembraneTranscription.Whisper
   alias MembraneTranscription.FancyWhisper
   use Membrane.Filter
 
+  # TODO: Proper spec types instead of :any
   def_options(
     buffer_duration: [
       spec: :any,
       default: 5,
       description: "Duration of each chunk transcribed in seconds"
     ],
+    # TODO: Fancy is a really bad option, see FancyWhisper for what it is
     fancy?: [
       spec: :any,
       default: false,
@@ -22,6 +25,10 @@ defmodule MembraneTranscription.Element do
     ]
   )
 
+  # TODO: Make the input cap require a 16000hz sample rate on a RawAudio format in f32le encoding
+  # TODO: Whisper requires 16000hz and f32le so if we require that on the caps that is information for
+  # TODO: the user to conform to that with the software resample filter for example, means it will fail
+  # TODO: clearly for bad inputs
   def_input_pad(:input,
     demand_unit: :buffers,
     caps: :any
@@ -33,10 +40,14 @@ defmodule MembraneTranscription.Element do
     caps: :any
   )
 
+  # TODO: Remove silence stuff, not used, not working
   @silence <<0, 0, 0, 0>>
   @tolerate_silence_ms 600
+
+  # TODO: See notes about input cap, this is probably still a useful number to have for some math
   @assumed_sample_rate 16000
   # seconds
+  # TODO: Don't think we will support any other formats, if we don't, no reason this should be a map
   @format_byte_size %{
     f32le: 4
   }
@@ -71,27 +82,12 @@ defmodule MembraneTranscription.Element do
     buffered = [state.buffered, buffer.payload]
     sample_size = @format_byte_size[:f32le]
 
-    # amps =
-    #   buffered
-    #   |> List.flatten()
-    #   |> Enum.map(fn chunk ->
-    #     {:ok, {amplitudes, _rest}} =
-    #       MembraneTranscription.Amplitude.find_amplitudes(chunk, %RawAudio{
-    #         sample_format: :f32le,
-    #         sample_rate: 16000,
-    #         channels: 1
-    #       })
-
-    #     hd(amplitudes)
-    #   end)
-
-    # mn = Enum.min(amps)
-    # mx = Enum.max(amps)
-    # sm = Enum.sum(amps)
-    # av = sm / Enum.count(amps)
-    # IO.puts("min: #{mn}    max: #{mx}    sum: #{sm}    avg: #{av}")
-
     data = IO.iodata_to_binary(buffered)
+
+    # TODO: Warn at least once if metadata doesn't have timestamper information
+    # TODO: Reference that the timestamper filter can be added to the pipeline
+    # TODO: to get that information
+    # TODO: It should still work without it, the current implementation will fail
 
     state =
       if byte_size(data) / sample_size / @assumed_sample_rate >
@@ -106,137 +102,11 @@ defmodule MembraneTranscription.Element do
             transcribing?: true
         }
       else
-        # This process flattens or binary
-        # remaining_bytes =
-        #   case detect_silence(data) do
-        #     {<<>>, bytes_to_save} ->
-        #       bytes_to_save
-
-        #     {bytes_to_transcribe, bytes_to_save} ->
-        #       # TODO: Fix lying end_ts
-        #       IO.puts("silenced detected #{byte_size(bytes_to_transcribe)}")
-        #       trigger_transcript(bytes_to_transcribe, state, buffer.metadata.end_ts)
-        #       bytes_to_save
-        #   end
-
-        # %{state | buffered: [remaining_bytes], end_ts: max(buffer.metadata.end_ts, state.end_ts)}
         %{state | buffered: [data], end_ts: max(buffer.metadata.end_ts, state.end_ts)}
       end
 
     {{:ok, buffer: {:output, buffer}}, state}
   end
-
-  @silence_ceiling 0.2
-  @silence_floor -0.2
-  defp detect_silence(data) do
-    data = trim_leading_silence(data)
-
-    case find_silence(data) do
-      -1 ->
-        {<<>>, data}
-
-      offset ->
-        <<transcribe::binary-size(offset), keep::binary>> = data
-        {transcribe, keep}
-    end
-  end
-
-  defp trim_leading_silence(data) do
-    case data do
-      <<val::size(32)-float-little, rest::binary>> ->
-        if val < @silence_ceiling and val > @silence_floor do
-          trim_leading_silence(rest)
-        else
-          rest
-        end
-
-      <<>> ->
-        <<>>
-    end
-  end
-
-  @tolerate_silent_samples 16000 * (@tolerate_silence_ms / 1000)
-  @tolerate_bits floor(@tolerate_silent_samples * 4)
-  defp grab_samples(data, samples \\ []) do
-    case data do
-      <<sample::size(32)-float-little, rest::binary>> ->
-        positive = abs(sample)
-        grab_samples(rest, [samples, positive])
-
-      <<>> ->
-        List.flatten(samples)
-    end
-  end
-
-  defp find_silence(data, offset \\ 0) do
-    case data do
-      <<val::binary-size(@tolerate_bits), rest::binary>> ->
-        samples = grab_samples(val)
-        c = Enum.count(samples)
-
-        {mn, mx, sm} =
-          Enum.reduce(samples, {nil, nil, 0}, fn v, {mn, mx, sm} ->
-            mn = mn || v
-            mx = mx || v
-            {min(mn, v), max(mx, v), sm + v}
-          end)
-
-        avg = sm / c
-        rng = mx - mn
-        IO.inspect(%{min: mn, max: mx, avg: avg, range: rng})
-
-        -1
-
-      _ ->
-        -1
-
-      <<>> ->
-        # IO.inspect(contiguous, label: "contiguous silence")
-        -1
-    end
-  end
-
-  defp find_silence_2(data, offset \\ 0, contiguous \\ 0) do
-    case data do
-      <<val::size(32)-float-little, rest::binary>> ->
-        IO.inspect(:erlang.float_to_binary(val, decimals: 5))
-
-        {break?, contiguous} =
-          if val < @silence_ceiling and val > @silence_floor do
-            {false, contiguous + 1}
-          else
-            if contiguous > @tolerate_silent_samples do
-              IO.puts(
-                "Not tolerating #{contiguous} (more than #{round(@tolerate_silent_samples)}) samples of silence... break"
-              )
-
-              {true, contiguous}
-            else
-              if contiguous > 0 do
-                IO.puts("Tolerated #{contiguous} samples of silence... reset on #{val}")
-              end
-
-              {false, 0}
-            end
-          end
-
-        if break? do
-          offset * 4
-        else
-          find_silence_2(rest, offset + 1, contiguous)
-        end
-
-      <<>> ->
-        # IO.inspect(contiguous, label: "contiguous silence")
-        -1
-    end
-  end
-
-  # @bytes_of_silence ((@assumed_sample_rate * 4) * (@tolerate_silence_ms / 1000))
-  # defp find_silence(<<0::binary-size(@bytes_of_silence), rest::binary>>, silence) do
-  #  IO.puts("found silence")
-  #  {}
-  # end
 
   defp trigger_transcript(data, state, end_ts) do
     send_to = self()
@@ -260,6 +130,8 @@ defmodule MembraneTranscription.Element do
           end
         end)
 
+      # TODO: Replace all uses of IO.puts/inspect with Logger.debug or remove them depending
+      # TODO: This one is useful so Logger.debug
       IO.puts(
         "Transcribed async #{state.start_ts}ms to #{end_ts}ms in #{floor(timing / 1000)}ms."
       )
@@ -278,6 +150,7 @@ defmodule MembraneTranscription.Element do
 
   @impl true
   def handle_end_of_stream(_pad, _context, state) do
+    # TODO: Lots of IO to clean up
     IO.puts("End of stream for transcriber...")
     IO.inspect(IO.iodata_length(state.buffered), label: "final buffer")
     data = IO.iodata_to_binary(state.buffered)

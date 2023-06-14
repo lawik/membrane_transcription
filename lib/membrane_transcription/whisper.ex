@@ -1,4 +1,10 @@
 defmodule MembraneTranscription.Whisper do
+  # TODO: Make sure this still works with the same API we have for FancyWhisper
+  # TODO: This should be the basic, simple one
+  # TODO: Maybe it should be named Transcriber since we might switch the model in the future
+  # TODO: Some basic test coverage would be good
+  # TODO: It might be worth abstracting the Bumblebee stuff behind a module so it can be
+  # TODO: switched out in testing
   use GenServer
   require Logger
 

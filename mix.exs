@@ -3,6 +3,8 @@ defmodule MembraneTranscription.MixProject do
 
   def project do
     [
+      # TODO: Set up all the necessary bits for a hex package,
+      # TODO: see pappersverk/inky for an example or some other repo you like
       app: :membrane_transcription,
       version: "0.1.0",
       elixir: "~> 1.14",
@@ -26,8 +28,11 @@ defmodule MembraneTranscription.MixProject do
       {:req, "~> 0.3.3", only: :test},
       {:membrane_mp3_mad_plugin, "~> 0.13.0", only: :test},
       {:membrane_ffmpeg_swresample_plugin, "~> 0.15", only: :test},
+      # TODO: is it used? if so, should be only: :test I bet
       {:membrane_audiometer_plugin, ">= 0.0.0"},
       {:membrane_fake_plugin, "~> 0.8.0", only: :test},
+      # TODO: Update to recent versioned dependencies instead of github versions
+      # TODO: This was running from master because Whisper had not landed in a release yet
       {:bumblebee, github: "elixir-nx/bumblebee"},
       {:nx, github: "elixir-nx/nx", sparse: "nx", override: true},
       {:exla, github: "elixir-nx/nx", sparse: "exla", override: true}

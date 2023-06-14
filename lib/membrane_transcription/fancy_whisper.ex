@@ -1,4 +1,24 @@
 defmodule MembraneTranscription.FancyWhisper do
+  # TODO: Rename to something reasonable. It is potentially a more performant and powerful variant but has
+  # TODO: trade-offs in terms of latency and complexity
+  # TODO: Should probably not have Whisper in the name as we might switch the model in the future
+  #
+  # TODO: This should really have some test-coverage to confirm it does what it is intended to do
+  # TODO: It run a batch-based Nx.Serving meaning that multiple transcripts can be fed in at once within
+  # TODO: the same batch_timeout and both be shoved through the GPU/CPU together for better utilization
+  # TODO: XLA can only run one operation on the GPU at one time, so batching is the best way to achieve
+  # TODO: concurrency
+  # TODO: A higher batch_timeout increases the chance that work gets batched but also introduces latency
+  # TODO: as it waits that long unless the batch size fills up first.
+  #
+  # TODO: I would add an option acceptable_latency and turn that into batch_size, default it to 100ms
+  #
+  # TODO: There is also a priority_queue mechanism here which is intended to give work marked :high in
+  # TODO: priority right of way to go before the regular queue. This part should have test coverage to see
+  # TODO: that is actually achieves the intended outcome.
+  #
+  # TODO: It might be worth abstracting the Nx stuff behind a module so it can be
+  # TODO: switched out in testing
   use GenServer
   require Logger
 

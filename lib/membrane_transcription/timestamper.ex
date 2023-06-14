@@ -1,4 +1,7 @@
 defmodule MembraneTranscription.Timestamper do
+  # TODO: Document what this module does and is for
+  # TODO: It adds timestamps to a stream that we can use for transcripts to ensure we know
+  # TODO: where in time the transcripts happen
   use Membrane.Filter
 
   require Logger
@@ -21,8 +24,6 @@ defmodule MembraneTranscription.Timestamper do
     mode: :pull,
     caps: :any
   )
-
-  # defp time, do: :erlang.system_time(:millisecond)
 
   @impl true
   def handle_init(%__MODULE{

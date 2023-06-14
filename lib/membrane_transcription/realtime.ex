@@ -1,4 +1,8 @@
 defmodule MembraneTranscription.Realtime do
+  # TODO: Remove this or break it out to a separate library
+  # TODO: It was intended to turn a pre-recorded file into a realtime stream
+  # TODO: Not needed for this library, it might fit in my experimental membrane_other repo
+  # TODO: Easy enough to recreate so could just remove, keep scope in check
   use Membrane.Filter
 
   require Logger
