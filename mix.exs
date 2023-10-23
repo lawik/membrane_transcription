@@ -28,9 +28,9 @@ defmodule MembraneTranscription.MixProject do
       {:membrane_ffmpeg_swresample_plugin, "~> 0.15", only: :test},
       {:membrane_audiometer_plugin, ">= 0.0.0"},
       {:membrane_fake_plugin, "~> 0.8.0", only: :test},
-      {:bumblebee, github: "elixir-nx/bumblebee"},
-      {:nx, github: "elixir-nx/nx", sparse: "nx", override: true},
-      {:exla, github: "elixir-nx/nx", sparse: "exla", override: true}
+      {:bumblebee, "~> 0.4.2"},
+      {:nx, "~> 0.6.2"},
+      {:exla, "~> 0.6.1"}
     ]
   end
 end

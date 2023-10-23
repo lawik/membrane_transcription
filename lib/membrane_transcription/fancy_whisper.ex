@@ -12,10 +12,11 @@ defmodule MembraneTranscription.FancyWhisper do
     {:ok, whisper} = Bumblebee.load_model({:hf, "openai/whisper-#{model}"})
     {:ok, featurizer} = Bumblebee.load_featurizer({:hf, "openai/whisper-#{model}"})
     {:ok, tokenizer} = Bumblebee.load_tokenizer({:hf, "openai/whisper-#{model}"})
+    {:ok, generation_config} = Bumblebee.load_generation_config({:hf, "openai/whisper-#{model}"})
 
     serving =
-      Bumblebee.Audio.speech_to_text(whisper, featurizer, tokenizer,
-        max_new_tokens: 100,
+      Bumblebee.Audio.speech_to_text_whisper(whisper, featurizer, tokenizer, generation_config,
+        chunk_num_seconds: 5,
         defn_options: [compiler: EXLA]
       )
 
@@ -45,8 +46,6 @@ defmodule MembraneTranscription.FancyWhisper do
   end
 
   def new_audio(raw_pcm_32_or_wav, channels, sampling_rate) do
-    IO.inspect(raw_pcm_32_or_wav)
-
     %{
       data: raw_pcm_32_or_wav,
       num_channels: channels,
