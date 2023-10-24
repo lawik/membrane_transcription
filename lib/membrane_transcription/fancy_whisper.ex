@@ -16,7 +16,8 @@ defmodule MembraneTranscription.FancyWhisper do
 
     serving =
       Bumblebee.Audio.speech_to_text_whisper(whisper, featurizer, tokenizer, generation_config,
-        chunk_num_seconds: 5,
+        chunk_num_seconds: 10,
+        language: "en",
         defn_options: [compiler: EXLA]
       )
 

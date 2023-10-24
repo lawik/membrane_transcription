@@ -264,10 +264,16 @@ defmodule MembraneTranscription.Element do
         "Transcribed async #{state.start_ts}ms to #{end_ts}ms in #{floor(timing / 1000)}ms."
       )
 
-      notification = {:transcribed, transcript, type, state.start_ts, end_ts}
+      text =
+        transcript.chunks
+        |> Enum.map(& &1.text)
+        |> Enum.join(" ")
+
+      notification = {:transcribed, text, type, state.start_ts, end_ts}
 
       IO.inspect(transcript, label: "transcript")
-      send(send_to, {:transcript, transcript, notification})
+      IO.inspect(text, label: "text")
+      send(send_to, {:transcript, text, notification})
     end)
   end
 
@@ -292,7 +298,13 @@ defmodule MembraneTranscription.Element do
     IO.inspect(transcript, label: "final transcript")
     t = time()
     IO.inspect("transcription element runtime #{t - state.started_at}ms")
-    notification = {:transcribed, transcript, :end, state.start_ts, state.end_ts}
+
+    text =
+      transcript.chunks
+      |> Enum.map(& &1.text)
+      |> Enum.join(" ")
+
+    notification = {:transcribed, text, :end, state.start_ts, state.end_ts}
 
     {{:ok, end_of_stream: :output, notify: notification}, state}
   end

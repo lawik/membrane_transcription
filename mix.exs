@@ -29,8 +29,8 @@ defmodule MembraneTranscription.MixProject do
       {:membrane_audiometer_plugin, ">= 0.0.0"},
       {:membrane_fake_plugin, "~> 0.8.0", only: :test},
       {:bumblebee, "~> 0.4.2"},
-      {:nx, "~> 0.6.2"},
-      {:exla, "~> 0.6.1"}
+      {:nx, "~> 0.6"},
+      {:exla, "~> 0.6"}
     ]
   end
 end
