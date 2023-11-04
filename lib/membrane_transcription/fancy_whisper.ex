@@ -8,24 +8,35 @@ defmodule MembraneTranscription.FancyWhisper do
 
   @impl true
   def init(opts) do
+    Logger.info("Starting FancyWhisper...")
     model = Keyword.fetch!(opts, :model)
+    Logger.info("Loading model...")
     {:ok, whisper} = Bumblebee.load_model({:hf, "openai/whisper-#{model}"})
+    Logger.info("Loading featurizer...")
     {:ok, featurizer} = Bumblebee.load_featurizer({:hf, "openai/whisper-#{model}"})
+    Logger.info("Loading tokenizer...")
     {:ok, tokenizer} = Bumblebee.load_tokenizer({:hf, "openai/whisper-#{model}"})
-    {:ok, generation_config} = Bumblebee.load_generation_config({:hf, "openai/whisper-#{model}"})
+    [dotless | _booo] = String.split(model, ".")
+
+    {:ok, generation_config} =
+      Bumblebee.load_generation_config({:hf, "openai/whisper-#{dotless}"})
+
+    Logger.info("Creating serving...")
 
     serving =
       Bumblebee.Audio.speech_to_text_whisper(whisper, featurizer, tokenizer, generation_config,
-        chunk_num_seconds: 10,
+        chunk_num_seconds: 5,
         language: "en",
         defn_options: [compiler: EXLA]
       )
 
+    Logger.info("Starting serving...")
+
     {:ok, pid} =
       Nx.Serving.start_link(
         serving: serving,
-        name: MembraneTranscription.FancyWhisper.Serving,
-        batch_timeout: 100
+        batch_timeout: 10,
+        name: MembraneTranscription.FancyWhisper.Serving
       )
 
     blank = for _ <- 1..16000, into: <<>>, do: <<0, 0, 0, 0>>
@@ -35,6 +46,8 @@ defmodule MembraneTranscription.FancyWhisper do
       |> Nx.from_binary(:f32)
       |> Nx.reshape({:auto, 1})
       |> Nx.mean(axes: [1])
+
+    Logger.info("Doing first warm-up run...")
 
     {t, _} =
       :timer.tc(fn ->
@@ -54,7 +67,7 @@ defmodule MembraneTranscription.FancyWhisper do
     }
   end
 
-  @timeout 30_000
+  @timeout 60_000
   def transcribe!(audio, priority \\ :normal) do
     Logger.info("Transcribing #{byte_size(audio.data)} byte at priority #{priority}...")
     GenServer.call(__MODULE__, {:transcribe, audio, priority}, @timeout)
